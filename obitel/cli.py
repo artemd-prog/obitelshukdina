@@ -167,7 +167,7 @@ def main(argv=None) -> int:
     p.add_argument("--root-url", default=None, help="адрес Первой Обители (для node)")
 
     p = sub.add_parser("serve", help="запустить HTTP-сервис Обители")
-    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--host", default="127.0.0.1", help="по умолчанию только этот компьютер; наружу — явно --host 0.0.0.0")
     p.add_argument("--port", type=int, default=8800)
     p.add_argument("--quiet", action="store_true")
 

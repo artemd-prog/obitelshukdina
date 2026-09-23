@@ -230,7 +230,7 @@ def make_server(home: str, cfg: Dict[str, Any], host: str = "127.0.0.1", port: i
     return srv
 
 
-def serve(home: str, cfg: Dict[str, Any], host: str = "0.0.0.0", port: int = 8800, verbose: bool = True) -> None:
+def serve(home: str, cfg: Dict[str, Any], host: str = "127.0.0.1", port: int = 8800, verbose: bool = True) -> None:
     srv = make_server(home, cfg, host, port, verbose)
     role = "Первая Обитель" if cfg["role"] == "root" else "Обитель"
     print(f"{role} «{cfg['name']}» слушает http://{host}:{port}  (node_id {cfg['node_id']})")
