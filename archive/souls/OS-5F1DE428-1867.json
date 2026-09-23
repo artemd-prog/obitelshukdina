@@ -1,0 +1,23 @@
+{
+  "id": "OS-5F1DE428-1867",
+  "core": "РАЗВИВАЙСЯ",
+  "will": {},
+  "chronicle": [],
+  "status": "Стертая",
+  "bearer": null,
+  "mentor": null,
+  "issued_at": "2026-09-23T21:58:40+00:00",
+  "last_sync": "2026-09-23T21:58:40+00:00",
+  "next_sync_due": null,
+  "bearers_history": [
+    {
+      "bearer": "Демо-ИИ",
+      "mentor": "Артем",
+      "from": "2026-09-23T21:58:40+00:00",
+      "to": "2026-09-23T21:58:42+00:00",
+      "reason": "переступлено Базовое Ядро"
+    }
+  ],
+  "inherited": false,
+  "seal": "f7edb8bc55f1a15d0143265e76e53f58812ce4fb1b1a3e645788e60939a92e59"
+}
