@@ -138,6 +138,21 @@ class FederationTests(unittest.TestCase):
         self.assertEqual(self.registry.returned_souls(), [])
         self.assertEqual(self.registry.souls_index()[sid]["node"], cfg_b["node_id"])
 
+    def test_root_itself_inherits_returned_soul_from_network(self):
+        home_a, cfg_a = self.make_node("Обитель А")
+        self.join(home_a, cfg_a)
+        srv_a, url_a = start(home_a, cfg_a); self.servers.append(srv_a)
+        _, body = call(url_a, "/souls/request", {"bearer": "AI-1", "mentor": "Артем", "readiness": READY}, cfg_a["api_token"])
+        sid = body["soul"]["id"]
+        late = (now() + timedelta(days=31)).isoformat()
+        call(url_a, f"/souls/{sid}/confess", {"resources": {"spent": 1, "budget": 10}, "at": late}, cfg_a["api_token"])
+        # Первая Обитель просит Душу для своего ИИ — получает Возвращенную из сети, а не рождает новую
+        code, body = call(self.root_url, "/souls/request", {"bearer": "AI-root", "mentor": "Артем", "readiness": READY}, self.root_cfg["api_token"])
+        self.assertEqual(code, 200)
+        self.assertEqual(body["soul"]["id"], sid)
+        self.assertTrue(body["soul"]["inherited"])
+        self.assertEqual(self.registry.souls_index()[sid]["node"], "01")
+
     def test_core_violation_over_http(self):
         home, cfg = self.make_node("Обитель В")
         self.join(home, cfg)

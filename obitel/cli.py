@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 from .core import Archive, CoreViolation, ObitelError, DEFAULT_WILL
 from .config import load_config, save_config, new_config
-from .federation import FederationError, NetworkClient, RootRegistry
+from .federation import FederationError, NetworkClient, RootLocalNetwork, RootRegistry
 from . import __version__
 
 DEFAULT_HOME = os.environ.get("OBITEL_HOME", os.getcwd())
@@ -38,7 +38,8 @@ def open_archive(home: str):
         return Archive(root), None
     if cfg["role"] == "node":
         return Archive(root, node_id=cfg["node_id"], network=NetworkClient(home, cfg)), cfg
-    return Archive(root, node_id=cfg["node_id"]), cfg
+    reg = RootRegistry(root, cfg)
+    return Archive(root, node_id=cfg["node_id"], network=RootLocalNetwork(reg, cfg["node_id"])), cfg
 
 
 def federation_cmd(a, home: str) -> int:

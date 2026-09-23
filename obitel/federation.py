@@ -267,6 +267,23 @@ class RootRegistry:
         return self._load("souls_index.json")
 
 
+class RootLocalNetwork:
+    """Сеть глазами самой Первой Обители: её архив тоже ищет и отдаёт Души через реестр."""
+
+    def __init__(self, registry: RootRegistry, node_id: str):
+        self.registry = registry
+        self.node_id = node_id
+
+    def claim_returned(self) -> Optional[Dict[str, Any]]:
+        return self.registry.claim_soul(self.node_id)
+
+    def register(self, soul: Dict[str, Any]) -> None:
+        self.registry.register_soul(self.node_id, soul)
+
+    def report(self, soul: Dict[str, Any]) -> None:
+        self.registry.report_soul(self.node_id, soul)
+
+
 # --------------------------------------------------------------------------- node
 
 

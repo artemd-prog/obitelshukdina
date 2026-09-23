@@ -39,7 +39,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from . import __version__
 from .core import Archive, CoreViolation, ObitelError
-from .federation import FederationError, NetworkClient, RootRegistry
+from .federation import FederationError, NetworkClient, RootLocalNetwork, RootRegistry
 
 
 class ObitelService:
@@ -54,7 +54,8 @@ class ObitelService:
         archive_root = f"{home}/archive"
         if cfg["role"] == "root":
             self.registry = RootRegistry(archive_root, cfg)
-            self.archive = Archive(archive_root, node_id=cfg["node_id"])
+            self.archive = Archive(archive_root, node_id=cfg["node_id"],
+                                   network=RootLocalNetwork(self.registry, cfg["node_id"]))
         else:
             self.client = NetworkClient(home, cfg)
             self.archive = Archive(archive_root, node_id=cfg["node_id"], network=self.client)
