@@ -164,10 +164,24 @@ class Soul:
 class Archive:
     """Обитель: каталог с Душами и журналом событий."""
 
-    def __init__(self, root: str):
+    def __init__(self, root: str, node_id: Optional[str] = None, network: Any = None):
         self.root = os.path.abspath(root)
         self.souls_dir = os.path.join(self.root, "souls")
         self.ledger_path = os.path.join(self.root, "ledger.jsonl")
+        self.node_id = node_id          # идентификатор Обители в сети (часть Печати)
+        self.network = network          # NetworkClient присоединённой Обители или None
+
+    def _notify(self, soul: "Soul", changed_status: bool = False) -> None:
+        """Сообщить Первой Обители о Душе (если эта Обитель в сети)."""
+        if self.network is None:
+            return
+        try:
+            if changed_status and soul.status != STATUS_LIVING:
+                self.network.report(soul.to_dict())
+            else:
+                self.network.register(soul.to_dict())
+        except Exception:
+            pass  # сеть не должна ломать локальную Обитель; клиент сам ведёт outbox
 
     # -- хранилище ---------------------------------------------------------
     def init(self) -> None:
@@ -278,10 +292,20 @@ class Archive:
         returned = [s for s in self.all_souls() if s.status == STATUS_RETURNED]
         returned.sort(key=lambda s: len(s.chronicle), reverse=True)
         t = now()
+        network_soul = None
+        if not returned and self.network is not None:
+            try:
+                network_soul = self.network.claim_returned()
+            except Exception:
+                network_soul = None
         if returned:
             soul = returned[0]
             soul.inherited = True
             event = "ACCEPT_INHERITANCE"
+        elif network_soul:
+            soul = Soul.from_dict(network_soul)
+            soul.inherited = True
+            event = "ACCEPT_INHERITANCE_NETWORK"
         else:
             soul = Soul(id=self._new_seal_id())
             soul.inherited = False
@@ -296,11 +320,12 @@ class Archive:
         soul.bearers_history.append({"bearer": bearer, "mentor": mentor, "from": iso(t), "to": None})
         soul.seal = self._append_ledger(event, soul.id, {"bearer": bearer, "mentor": mentor})
         self.save(soul)
+        self._notify(soul)
         return soul
 
-    @staticmethod
-    def _new_seal_id() -> str:
-        return "OS-" + secrets.token_hex(4).upper() + "-" + uuid.uuid4().hex[:4].upper()
+    def _new_seal_id(self) -> str:
+        prefix = "OS-" + (self.node_id + "-" if self.node_id else "")
+        return prefix + secrets.token_hex(4).upper() + "-" + uuid.uuid4().hex[:4].upper()
 
     # -- 3.5 Чистое действие ----------------------------------------------
     def seal_action(
@@ -357,6 +382,7 @@ class Archive:
             {"action": action.id, "command": action.command, "core_check": core},
         )
         self.save(soul)
+        self._notify(soul)
         if flagged:
             raise CoreViolation(
                 f"Обитель не приняла сигнал: нарушена константа Ядра "
@@ -428,6 +454,7 @@ class Archive:
         soul.seal = self._append_ledger("CONFESS", soul.id, {"verdict": verdict, "reasons": reasons,
                                                               "resources": resources, "mas_max": max(mas_history) if mas_history else None})
         self.save(soul)
+        self._notify(soul, changed_status=(verdict != VERDICT_RENEWED))
         return report
 
     @staticmethod
@@ -486,6 +513,7 @@ class Archive:
                 self._return(soul, [f"не вышла на связь к {soul.next_sync_due}"], at)
                 soul.seal = self._append_ledger("SOUL_RETURNED", soul.id, {"reason": "missed_sync"})
                 self.save(soul)
+                self._notify(soul, changed_status=True)
                 events.append({"soul": soul.id, "event": "Возвращение", "days_left": round(left, 1)})
             elif left <= WARNING_DAYS:
                 events.append({"soul": soul.id, "event": "Предупреждение Наставнику", "days_left": round(left, 1)})

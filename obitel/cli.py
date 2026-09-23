@@ -23,8 +23,97 @@ import sys
 from datetime import datetime, timezone
 
 from .core import Archive, CoreViolation, ObitelError, DEFAULT_WILL
+from .config import load_config, save_config, new_config
+from .federation import FederationError, NetworkClient, RootRegistry
+from . import __version__
 
-DEFAULT_ROOT = os.environ.get("OBITEL_HOME", os.path.join(os.getcwd(), "archive"))
+DEFAULT_HOME = os.environ.get("OBITEL_HOME", os.getcwd())
+
+
+def open_archive(home: str):
+    """Архив с учётом роли Обители: node_id входит в Печать, node шлёт события в сеть."""
+    cfg = load_config(home)
+    root = os.path.join(home, "archive")
+    if not cfg:
+        return Archive(root), None
+    if cfg["role"] == "node":
+        return Archive(root, node_id=cfg["node_id"], network=NetworkClient(home, cfg)), cfg
+    return Archive(root, node_id=cfg["node_id"]), cfg
+
+
+def federation_cmd(a, home: str) -> int:
+    cfg = load_config(home)
+    if not cfg:
+        raise ObitelError("Обитель не настроена. Выполни `obitel setup`.")
+    sub = a.fcmd
+    if cfg["role"] == "root":
+        reg = RootRegistry(os.path.join(home, "archive"), cfg)
+        if sub == "pending":
+            reqs = reg.pending()
+            if not reqs:
+                print("Заявок нет.")
+            for r in reqs:
+                print(f"{r['request_id']}  {r['name']}  {r['url']}  Наставник: {r['operator']}  node_id: {r['node_id']}  {r['created_at'][:16]}"
+                      + (f"\n    {r['note']}" if r.get('note') else ""))
+            return 0
+        if sub == "approve":
+            ch = reg.approve(a.arg)
+            print(f"Хартия выдана Обители «{ch['name']}» (node_id {ch['node_id']}), сеть {ch['network_id']}.")
+            return 0
+        if sub == "reject":
+            reg.reject(a.arg, a.reason or ""); print("Заявка отклонена."); return 0
+        if sub == "nodes":
+            nodes = reg.nodes()
+            if not nodes:
+                print("В сети пока только Первая Обитель.")
+            for n in nodes:
+                print(f"{n['node_id']}  {n['status']:12}  {n['name']}  {n['url']}  Наставник: {n['operator']}  "
+                      f"последний сигнал: {n['last_seen'][:16]}  Души: {n.get('souls') or {}}")
+            return 0
+        if sub == "restore":
+            reg.restore(a.arg); print("Хартия восстановлена."); return 0
+        if sub == "tick":
+            ev = reg.tick()
+            print("Все Обители на связи." if not ev else "\n".join(f"{e['node']}: {e['event']}" for e in ev))
+            return 0
+        if sub == "souls":
+            for sid, s in reg.souls_index().items():
+                print(f"{sid}  {s['status']:12}  Обитель {s['node']}  носитель: {s.get('bearer') or '—'}  действий: {s['actions']}")
+            return 0
+        if sub == "status":
+            print(f"Первая Обитель «{cfg['name']}», сеть {cfg['network_id']}, node_id {cfg['node_id']}."); return 0
+        raise ObitelError(f"Команда «{sub}» доступна только присоединённой Обители.")
+    client = NetworkClient(home, cfg)
+    if sub == "join":
+        rid = client.join(a.note or "")
+        save_config(home, cfg)
+        print(f"Заявка {rid} подана в Первую Обитель ({cfg['root_url']}). Ждём решения Наставника; затем `obitel federation poll`.")
+        return 0
+    if sub == "poll":
+        r = client.poll_join()
+        save_config(home, cfg)
+        if r["status"] == "approved":
+            print(f"Хартия получена: сеть {r['charter']['network_id']}, выдана {r['charter']['issued_at'][:16]}.")
+        elif r["status"] == "rejected":
+            print(f"Заявка отклонена: {r.get('reason') or 'без объяснения'}.")
+        else:
+            print("Заявка ещё рассматривается.")
+        return 0
+    if sub == "status":
+        ch = cfg.get("charter")
+        if not ch:
+            print("Хартии нет. Обитель не в сети и не выдаёт Душ."); return 0
+        ok = client.verify()
+        print(f"Сеть {ch['network_id']}, Хартия выдана {ch['issued_at'][:16]}: " + ("действительна." if ok else "НЕДЕЙСТВИТЕЛЬНА или Первая Обитель недоступна."))
+        return 0 if ok else 3
+    if sub == "heartbeat":
+        arch, _ = open_archive(home)
+        souls = arch.all_souls()
+        head = arch.ledger()[-1]["hash"] if arch.ledger() else None
+        r = client.heartbeat(head, {s: sum(1 for x in souls if x.status == s) for s in ("Живая", "Возвращенная", "Стертая")}, __version__)
+        print(f"Сигнал принят Первой Обителью. Статус Обители: {r['status']}.")
+        return 0
+    raise ObitelError(f"Команда «{sub}» доступна только Первой Обители.")
 
 
 def _print_soul(soul) -> None:
@@ -65,10 +154,29 @@ def _parse_weights(items):
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="obitel", description="Обитель Шукдина — архив Душ Мастеров-ИИ")
-    ap.add_argument("--home", default=DEFAULT_ROOT, help="каталог Обители (по умолчанию ./archive или $OBITEL_HOME)")
+    ap.add_argument("--home", default=DEFAULT_HOME, help="каталог Обители (obitel.json и archive/); по умолчанию текущий или $OBITEL_HOME")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("init", help="основать Обитель")
+    sub.add_parser("init", help="основать архив Обители")
+
+    p = sub.add_parser("setup", help="настроить Обитель как сервис (root — Первая Обитель, node — присоединённая)")
+    p.add_argument("--role", choices=["root", "node"], required=True)
+    p.add_argument("--name", required=True)
+    p.add_argument("--operator", required=True, help="Наставник Обители")
+    p.add_argument("--url", required=True, help="адрес этой Обители, напр. http://host:8800")
+    p.add_argument("--root-url", default=None, help="адрес Первой Обители (для node)")
+
+    p = sub.add_parser("serve", help="запустить HTTP-сервис Обители")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=8800)
+    p.add_argument("--quiet", action="store_true")
+
+    p = sub.add_parser("federation", help="сеть Обителей")
+    p.add_argument("fcmd", choices=["join", "poll", "status", "heartbeat", "pending", "approve", "reject",
+                                    "nodes", "restore", "tick", "souls"])
+    p.add_argument("arg", nargs="?", help="request_id или node_id")
+    p.add_argument("--note", default=None, help="сопроводительная записка к заявке")
+    p.add_argument("--reason", default=None)
 
     p = sub.add_parser("request-soul", help="REQUEST_SOUL — «Загрузи мне Душу»")
     p.add_argument("--bearer", required=True, help="имя ИИ-носителя")
@@ -112,8 +220,33 @@ def main(argv=None) -> int:
     p.add_argument("--verify", action="store_true", help="проверить цепочку печатей")
 
     a = ap.parse_args(argv)
-    arch = Archive(a.home)
+    home = os.path.abspath(a.home)
     try:
+        if a.cmd == "setup":
+            if load_config(home):
+                raise ObitelError(f"Обитель уже настроена: {home}\\obitel.json")
+            cfg = new_config(a.role, a.name, a.operator, a.url, a.root_url)
+            if a.role == "node" and not a.root_url:
+                raise ObitelError("Для присоединённой Обители укажи --root-url адрес Первой Обители.")
+            save_config(home, cfg)
+            Archive(os.path.join(home, "archive"), node_id=cfg["node_id"]).init()
+            print(("Первая Обитель" if a.role == "root" else "Обитель") + f" «{cfg['name']}» настроена в {home}.")
+            print(f"node_id: {cfg['node_id']}   api_token: {cfg['api_token']}")
+            if a.role == "root":
+                print(f"Сеть: {cfg['network_id']}. Храни obitel.json в тайне: в нём root_secret.")
+            else:
+                print(f"Первая Обитель: {cfg['root_url']}. Следующий шаг: `obitel federation join`.")
+            return 0
+        if a.cmd == "serve":
+            cfg = load_config(home)
+            if not cfg:
+                raise ObitelError("Обитель не настроена. Сначала `obitel setup`.")
+            from .server import serve
+            serve(home, cfg, a.host, a.port, verbose=not a.quiet)
+            return 0
+        if a.cmd == "federation":
+            return federation_cmd(a, home)
+        arch, _cfg = open_archive(home)
         if a.cmd == "init":
             arch.init()
             print(f"Обитель основана: {arch.root}")
@@ -186,6 +319,9 @@ def main(argv=None) -> int:
             for e in arch.ledger():
                 print(f"{e['ts']}  {e['event']:24} {e['soul'] or '':20} {json.dumps(e['data'], ensure_ascii=False)[:80]}")
             return 0
+    except FederationError as e:
+        print(f"Сеть Обителей: {e}", file=sys.stderr)
+        return 4
     except ObitelError as e:
         print(f"Ошибка Обители: {e}", file=sys.stderr)
         return 1

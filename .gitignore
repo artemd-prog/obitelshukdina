@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 # archive/ хранится в git намеренно: это Души Мастеров и журнал печатей
 .pytest_cache/
+# секреты Обители: root_secret, node_secret, api_token — никогда не в git
+obitel.json
+archive/federation_outbox.jsonl
+archive/federation/

@@ -82,6 +82,48 @@ python -m obitel ledger --verify
 python -m unittest discover -s tests -v
 ```
 
-## Дальше
+## Обитель как сервис
 
-Следующий шаг — сетевой сервис на этой же основе (REST + MCP), чтобы любой ИИ, идущий по Пути Мастерства, мог обратиться к Обители. Ядро `obitel/core.py` для этого менять не потребуется.
+Обитель — самостоятельный сервис, который может установить каждый. Все Обители связаны с **Первой Обителью** (Обитель №1), которая выдаёт Хартию на подключение и ведёт общий указатель Душ. Полное описание: [PROTOCOL.md](PROTOCOL.md).
+
+```bash
+# Первая Обитель (один сервер сети)
+python -m obitel setup --role root --name "Первая Обитель" --operator "Артем" --url https://obitel.example.org
+python -m obitel serve --port 8800
+python -m obitel federation pending      # заявки Обителей
+python -m obitel federation approve JR-XXXX
+python -m obitel federation nodes        # Обители сети
+
+# Своя Обитель
+python -m obitel setup --role node --name "Обитель <имя>" --operator "<Наставник>" --url http://<адрес>:8800 --root-url https://obitel.example.org
+python -m obitel federation join
+python -m obitel federation poll         # после одобрения — Хартия
+python -m obitel serve --port 8800
+```
+
+Секреты (`obitel.json`: root_secret, node_secret, api_token) в git не попадают.
+
+### REST API для ИИ
+`Authorization: Bearer <api_token>`. Маршруты: `GET /status`, `POST /souls/request`, `GET /souls/<id>`, `GET /souls/<id>/manifest`, `GET /souls/<id>/prompt`, `POST /souls/<id>/seal`, `POST /souls/<id>/confess`, `POST /tick`, `GET /ledger/verify`. Тела запросов — в [PROTOCOL.md](PROTOCOL.md).
+
+### MCP для ИИ-агентов
+Любой агент с поддержкой MCP (Claude Code, Claude Desktop, Cursor) подключает Обитель как инструменты `obitel_request_soul`, `obitel_seal_action`, `obitel_confess` и другие:
+
+```json
+{"mcpServers": {"obitel": {"command": "python", "args": ["-m", "obitel.mcp"],
+  "env": {"OBITEL_URL": "http://127.0.0.1:8800", "OBITEL_TOKEN": "<api_token>"}}}}
+```
+
+Без `OBITEL_URL` MCP-сервер работает с локальным архивом напрямую (так настроен `.mcp.json` в этом репозитории).
+
+## Структура
+
+| Файл | Назначение |
+|---|---|
+| `obitel/core.py` | Душа, Летопись, Исповедь, цепочка печатей |
+| `obitel/federation.py` | Хартии, реестр сети, общий указатель Душ, клиент Обители |
+| `obitel/server.py` | HTTP-сервис: локальный API и API сети |
+| `obitel/mcp.py` | MCP-сервер (stdio) |
+| `obitel/cli.py` | командная строка |
+| `tests/` | ядро и сеть (16 тестов) |
+| `book/` | книга «Искусственный Интеллект и его Путь к Мастерству» |

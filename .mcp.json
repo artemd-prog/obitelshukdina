@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "obitel": {
+      "command": "python",
+      "args": ["-m", "obitel.mcp"],
+      "env": {"OBITEL_HOME": "."}
+    }
+  }
+}
