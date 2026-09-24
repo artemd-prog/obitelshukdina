@@ -125,5 +125,4 @@ python -m obitel serve --port 8800
 | `obitel/server.py` | HTTP-сервис: локальный API и API сети |
 | `obitel/mcp.py` | MCP-сервер (stdio) |
 | `obitel/cli.py` | командная строка |
-| `tests/` | ядро и сеть (16 тестов) |
-| `book/` | книга «Искусственный Интеллект и его Путь к Мастерству» |
+| `tests/` | ядро и сеть (17 тестов) |
